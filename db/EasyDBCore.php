@@ -86,7 +86,7 @@ abstract class EasyDBCore implements EasyDBInterface {
      * @param array $fields
      */
     protected function fillTableFile($table, $fields) {
-        //拼接头信息(4K)
+        //拼接头信息
 
         //16字节(版本信息)
         $header_block = pack('a' . VERSION_LENGTH, 'EasyDB ' . VERSION);
@@ -94,9 +94,15 @@ abstract class EasyDBCore implements EasyDBInterface {
         //4字节(主键自增ID)
         $header_block .= pack('L', 0x0000);
 
+        //根节点块
+        $header_block .= pack('L', 0x0000);
+
+        //下一个空闲块
+        $header_block .= pack('L', 0x0001);
+
         $header_block = pack('a' . BLOCK_SIZE / 2, $header_block);
 
-        //拼接表信息(4K)
+        //拼接表信息
         //拼接字段信息(2K，最多支持100个字段，好屌。。。)
         $filed_block = '';
 
@@ -127,6 +133,9 @@ abstract class EasyDBCore implements EasyDBInterface {
         $header_block .= pack('a' . BLOCK_SIZE / 4, $index_block);
 
         fwrite(self::$fd[$table], $header_block, BLOCK_SIZE);
+
+        //扩展表空间
+        $this->expandTable($table);
     }
 
     /**
@@ -148,33 +157,75 @@ abstract class EasyDBCore implements EasyDBInterface {
             //读取header全部信息
             $header = fread(self::$fd[$table], BLOCK_SIZE);
 
+            //开始截取
+            $start = 0;
+
             //截取版本
-            self::$header[$table]['version'] = rtrim(unpack('a*', substr($header, 0, VERSION_LENGTH))[1], "\0");
+            self::$header[$table]['version'] = rtrim(unpack('a*', substr($header, $start, VERSION_LENGTH))[1], "\0");
+            $start += VERSION_LENGTH;
 
             //截取最大ID
-            self::$header[$table]['max_id'] = (int)rtrim(unpack('L', substr($header, VERSION_LENGTH, MAX_ID_LENGTH))[1], "\0");
+            self::$header[$table]['max_id'] = (int)rtrim(unpack('L', substr($header, $start, MAX_ID_LENGTH))[1], "\0");
+            $start += MAX_ID_LENGTH;
+
+            //根节点位置
+            self::$header[$table]['root_node'] = (int)rtrim(unpack('L', substr($header, $start, ROOT_NODE_LENGTH))[1], "\0");
+            $start += ROOT_NODE_LENGTH;
+
+            //空闲节点位置
+            self::$header[$table]['free_node'] = (int)rtrim(unpack('L', substr($header, $start, FREE_NODE_LENGTH))[1], "\0");
+
+            //单节点主键个数
+            self::$header[$table]['node_pk_size'] = 1024;
 
             //获取表结构
             $fileds = substr($header, BLOCK_SIZE / 2, BLOCK_SIZE / 4);
             for($i = 0; $i < floor(BLOCK_SIZE / 4 / FIELD_SIZE); $i++) {
                 $field = substr($fileds, $i * FIELD_SIZE, FIELD_SIZE);
-                if($field[0] == "\0") break;
+                if($field[0] === "\0") break;
                 $f = unpack('a' . FIELD_NAME_LENGTH. 'field/S1type/S1length', $field);
                 $f['field'] = rtrim($f['field'], "\0");
                 self::$header[$table]['field'][$f['field']] = $f;
             }
-
-            //获取索引
             //var_dump(self::$header[$table]);exit;
-
         }
     }
 
     /**
-     * 获取当前主键最大ID
+     * 扩展表空间
+     * @param string $table
      */
-    protected function getMaxId() {
+    protected function expandTable($table) {
+        fseek(self::$fd[$table], 0, SEEK_END);
+        fwrite(self::$fd[$table], pack('a' . BLOCK_SIZE * 8, ''), BLOCK_SIZE * 8);
+    }
 
+    /**
+     * 移动数据指针，支持自动扩容
+     * @param string $table
+     * @param int $node_number
+     * @param int $offset
+     */
+    protected function fseekBlock($table, $node_number, $offset = 0) {
+        fseek(self::$fd[$table], ($node_number + 1) * BLOCK_SIZE + $offset);
+        /*
+        //空间不足，扩容
+        if(fstat(self::$fd[$table])['size'] <= $offset) {
+            $this->expandTable($table);
+        }
+        */
+    }
+
+    /**
+     * 读取block
+     * @param string $table
+     * @param int $node_number
+     * @param int $offset
+     * @return string
+     */
+    protected function readBlock($table, $node_number, $offset = 0) {
+        $this->fseekBlock($table, $node_number, $offset);
+        return fread(self::$fd[$table], BLOCK_SIZE);
     }
 
     /**
@@ -183,7 +234,24 @@ abstract class EasyDBCore implements EasyDBInterface {
      * @param array $values
      */
     protected function insertValues($table, $values) {
+        $id = self::$header[$table]['max_id'] + 1;
+        var_dump($id);
 
+        //读取root_node数据
+        $root_block = $this->readBlock($table, self::$header[$table]['root_node']);
+
+        //根节点为空，初始化
+        if($root_block[0] === "\0") {
+            $this->fseekBlock($table, self::$header[$table]['root_node']);
+            $offset = 0;
+            $data = pack('L2', $id, self::$header[$table]['free_node']);
+            fwrite(self::$fd[$table], $data, 8);
+            var_dump($data);
+        }
+
+        //fwrite(self::$fd[$table], 1);
+        //fread(self::$fd[$table], BLOCK_SIZE);
+        //var_dump($table, $values);exit;
     }
 
     /**

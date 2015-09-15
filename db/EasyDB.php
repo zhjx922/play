@@ -96,12 +96,9 @@ class EasyDB extends EasyDBCore {
 
 //连接数据库zhjx922
 $db = new EasyDB('zhjx922');
-/*
-$db->createTable('test', [
-    'id int 11',
-    'name varchar 255',
-    'sex char 3'
-]);
-*/
-$db->select('test');
+
+//$db->createTable('test', ['id int 11', 'name varchar 255', 'sex char 3']);
+
+//$db->select('test');
 //var_dump($db->showTables());
+$db->insert('test', ['name'=>'zhjx922', 'sex'=>'man']);

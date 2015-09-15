@@ -19,3 +19,5 @@ define('FIELD_VARCHAR',         0x0003); //字段类型VARCHAR
 define('FIELD_SIZE',            0x0014); //字段占空间大小
 
 define('MAX_ID_LENGTH',         0x0004); //最大ID长度
+define('ROOT_NODE_LENGTH',      0x0004); //根节点块位置长度
+define('FREE_NODE_LENGTH',      0x0004); //空闲块位置长度
